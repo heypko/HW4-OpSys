@@ -76,13 +76,6 @@ int main()
 
   int pid;
 
-  struct stat st = {0};
-
-  if (stat("/fileStorage", &st) == -1) {
-      fprintf(stderr, "Making fileStorage Folder\n\n\n");
-      mkdir("/fileStorage", 0700);
-  }
-
   while ( 1 )
   {
     /*printf( "PARENT: Blocked on accept()\n" );*/
@@ -239,7 +232,6 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
   int numBytes = atoi(parsed[1]);
 
   /* Create file pointer, open file to read */
-  chdir("fileStorage");
   FILE* fp = fopen(parsed[0], "rb");
 
   /* Check file validity */
@@ -341,7 +333,6 @@ int read_file(char * message, char* delim, char** saveptr, int newsock) {
   int readLength = atoi(parsed[2]);
 
   /* Create file pointer, open file to read */
-  chdir("fileStorage");
   FILE* fp = fopen(parsed[0], "rb");
 
   /* Check file validity */
@@ -416,8 +407,6 @@ int list_file(int newsock) {
   struct dirent **namelist;
   int numFiles;
 
-  chdir("fileStorage");
-
   /* numFiles - TOTAL number of entries in directory */
   numFiles = scandir(".", &namelist, NULL, alphasort);
  
@@ -491,7 +480,6 @@ int list_file(int newsock) {
   {
     perror( "LIST FAILED" );
   }
-
 
   return 0;
 }
