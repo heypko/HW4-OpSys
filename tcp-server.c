@@ -78,9 +78,8 @@ int main()
 
   struct stat st = {0};
 
-  if (stat("/fileStorage", &st) == -1) {
-      fprintf(stderr, "Making fileStorage Folder\n\n\n");
-      mkdir("/fileStorage", 0700);
+  if (stat("fileStorage", &st) == -1) {
+      mkdir("fileStorage", 0700);
   }
 
   while ( 1 )
@@ -145,33 +144,32 @@ int main()
 
           /* Check for STORE */
           if (strcmp(message, "STORE") == 0) {
-            fprintf(stderr, "Executing %s\n", message );
-
+            /* Change working directory on process */
+            chdir("fileStorage");
             /* Call store_file function */
-            if (store_file(message, delim, saveptr, newsock, n) == 0) {
-              fprintf(stderr, "Success\n");
-            } else { fprintf(stderr, "Fail\n"); }
-
+            store_file(message, delim, saveptr, newsock, n);
+            /* Return to root directory */
+            chdir("../");
           }
 
           /* Check for READ */
           else if (strcmp(message, "READ") == 0) {
-            fprintf(stderr, "Executing %s\n", message );
+            /* Change working directory on process */
+            chdir("fileStorage");
             /* Call read_file function */
-            if (read_file(message, delim, saveptr, newsock) == 0) {
-              fprintf(stderr, "Success\n");
-            } else { fprintf(stderr, "Fail\n"); }
-
+            read_file(message, delim, saveptr, newsock);
+            /* Return to root directory */
+            chdir("../");
           }
 
           /* Check for LIST */
           else if (strcmp(message, "LIST") == 0) {
-            fprintf(stderr, "Executing %s\n", message );
+            /* Change working directory on process */
+            chdir("fileStorage");
             /* Run list_file function */
-            if (list_file(newsock) == 0) {
-              fprintf(stderr, "Success\n");
-            } else { fprintf(stderr, "Fail\n"); }
-
+            list_file(newsock);
+            /* Return to root directory */
+            chdir("../");
           }
 
           else {
@@ -223,13 +221,15 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
     message = strtok_r(NULL, delim, saveptr);
     parsed[i] = (char*)calloc(strlen(message), 1);
     strcpy(parsed[i], message);
-    fprintf(stderr, "Message[%d] = %s\n", i, message);
+    #ifdef DEBUG
+      fprintf(stderr, "Message[%d] = %s\n", i, message);
+    #endif
   }
   
   /* Check for non integer byte number */
   for (i = 0; i < strlen(parsed[1]) - 1; ++i) {
     if (isdigit(parsed[1][i]) == 0) {
-      fprintf(stderr, "Sending: ERROR INVALID REQUEST\n");
+      printf( "[child %d] Sent ERROR INVALID REQUEST\n", getpid());
       send( newsock, "ERROR INVALID REQUEST\n", 22, 0 );
       return 1;
     }
@@ -239,12 +239,11 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
   int numBytes = atoi(parsed[1]);
 
   /* Create file pointer, open file to read */
-  chdir("fileStorage");
   FILE* fp = fopen(parsed[0], "rb");
 
   /* Check file validity */
   if(!(NULL == fp)) {
-    fprintf(stderr, "Sending: ERROR FILE EXISTS\n");
+    printf( "[child %d] Sent ERROR FILE EXISTS\n", getpid());
     send( newsock, "ERROR FILE EXISTS\n", 18, 0 );
     return 1;
   } 
@@ -254,17 +253,16 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
 
   /* Check file validity */
   if(NULL == fp) {
-      fprintf(stderr, "Error opening file\n");
-      return 1;
-  } else { fprintf(stderr, "File opened for write\n"); }
+    printf( "[child %d] Sent ERROR OPENING FILE\n", getpid());
+    send( newsock, "ERROR OPENING FILE\n", 19, 0 );
+    return 1;
+  }
 
   /* Stop using delimiters in remainder of message */
   char emptyDelim[1];
 
   /* Get remainder of message */
   message = strtok_r(NULL, emptyDelim, saveptr);
-  fprintf(stderr, "BufferRemainder: Message = %s\n", message);
-
   
   /* Find offset based off of length of previous 
     string arguments and number of delimiters */
@@ -274,7 +272,7 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
   /* Write remainder of buffer */
   fwrite(message, 1, offset, fp);
 
-  fprintf(stderr, "preLoop = %d\n", offset);
+  /* Decrement numBytes left to store */
   numBytes -= offset;
   
 
@@ -285,18 +283,16 @@ int store_file(char * message, char* delim, char** saveptr, int newsock, int mor
     /* Keep receiving */
     moreMsg = recv( newsock, buffer, BUFFER_SIZE, 0 );
     numBytes -= moreMsg;
-    fprintf(stderr, "BufferRemainder: Message = %s\n", buffer);
-    fprintf(stderr, "writing %d bytes\n", moreMsg);
     fwrite(buffer, 1, moreMsg, fp);
   }
+
+  printf( "[child %d] Stored file \"%s\" (%s bytes)\n", getpid(), parsed[0], parsed[1] );  
 
   /* Send ack back to the client */
   int n = send( newsock, "ACK\n", 4, 0 );
   fflush( NULL );
-  if ( n != 4 )
-  {
-    perror( "STORE ACK FAILED" );
-  }
+  if ( n != 4 ){ perror( "STORE ACK FAILED" ); } 
+  else { printf( "[child %d] Sent ACK\n", getpid());}
 
   /* Free message memory */
   for (i = 0; i < 2; ++i) {
@@ -330,7 +326,7 @@ int read_file(char * message, char* delim, char** saveptr, int newsock) {
   /* Check for non integer byte number */
   for (i = 0; i < strlen(parsed[2]) - 1; ++i) {
     if (isdigit(parsed[2][i]) == 0) {
-      fprintf(stderr, "Sending: ERROR INVALID REQUEST\n");
+      printf( "[child %d] Sent ERROR INVALID REQUEST\n", getpid());
       send( newsock, "ERROR INVALID REQUEST\n", 22, 0 );
       return 1;
     }
@@ -341,15 +337,14 @@ int read_file(char * message, char* delim, char** saveptr, int newsock) {
   int readLength = atoi(parsed[2]);
 
   /* Create file pointer, open file to read */
-  chdir("fileStorage");
   FILE* fp = fopen(parsed[0], "rb");
 
   /* Check file validity */
   if(NULL == fp) {
-      fprintf(stderr, "Sending: ERROR NO SUCH FILE\n");
-      send( newsock, "ERROR NO SUCH FILE\n", 19, 0 );
-      return 1;
-  } else { fprintf(stderr, "File opened for read\n"); }
+    printf( "[child %d] Sent ERROR NO SUCH FILE\n", getpid());
+    send( newsock, "ERROR NO SUCH FILE\n", 19, 0 );
+    return 1;
+  }
 
   /* Check byte range validity */
   fseek(fp, 0L, SEEK_END);
@@ -359,7 +354,7 @@ int read_file(char * message, char* delim, char** saveptr, int newsock) {
   int offsetLocation = ftell(fp) + (long)readLength;
 
   if (offsetLocation < 0 || (offsetLocation > fileSize)) {
-    fprintf(stderr, "ERROR INVALID BYTE RANGE\n");
+    printf( "[child %d] Sent ERROR INVALID BYTE RANGE\n", getpid());
     send( newsock, "ERROR INVALID BYTE RANGE\n", 25, 0 );
     return 1;
   }
@@ -369,17 +364,22 @@ int read_file(char * message, char* delim, char** saveptr, int newsock) {
 
   /* Write ACK into send buffer */
   snprintf(buffer, (6 + strlen(parsed[2])),"ACK %d\n", readLength);
+  printf( "[child %d] Sent %s\n", getpid(), buffer);
   
   /* Read # of bytes */
   fread(buffer + (6 + strlen(parsed[2])), 1, readLength, fp);
 
   /* Send message back to the client */
-  int n = send( newsock, buffer, (readLength + 5 + strlen(parsed[2])), 0 );
+  int n = send( newsock, buffer, (readLength + 6 + strlen(parsed[2])), 0 );
   fflush( NULL );
-  if ( n != readLength )
+  if ( n != readLength + 6 + strlen(parsed[2]) )
   {
     perror( "READ FAILED" );
   }
+
+  /* Output for sent information */
+  printf( "[child %d] Sent %d of \"%s\" from offset %d\n", 
+          getpid(), readLength, parsed[0], readLength);
 
   /* Free message memory */
   for (i = 0; i < 3; ++i) {
@@ -416,19 +416,16 @@ int list_file(int newsock) {
   struct dirent **namelist;
   int numFiles;
 
-  chdir("fileStorage");
-
   /* numFiles - TOTAL number of entries in directory */
   numFiles = scandir(".", &namelist, NULL, alphasort);
  
-
   /* Initialize buffers and variables */
   struct stat buf;
   int dBufferLength = 0;
   int fileCount = 0;
   int i;
 
-  /* count number of files and add to dBufferLength */
+  /* Count number of files and add to dBufferLength */
   for (i = 0; i < numFiles; ++i) {
     /* Get file information */
     int lstatCheck = lstat( namelist[i]->d_name, &buf );
@@ -440,7 +437,6 @@ int list_file(int newsock) {
 
     /* Only count regular files */
     if ( S_ISREG( buf.st_mode ) ) {
-      fprintf ( stdout, "In Directory: %s -- regular file\n", namelist[i]->d_name);
       dBufferLength += strlen(namelist[i]->d_name) + 1;
       ++fileCount;
     }  
@@ -469,10 +465,7 @@ int list_file(int newsock) {
 
     /* Only add regular files */
     if ( S_ISREG( buf.st_mode ) ) {
-      
       snprintf(dBuffer + strlen(dBuffer), (strlen(namelist[i]->d_name) + 2), " %s", namelist[i]->d_name);
-      fprintf ( stdout, "Adding to dBuffer: %s -- regular file\n", namelist[i]->d_name);
-      fprintf(stderr, "dBuffer = %s\n", dBuffer);
 
       /* Free namelist element memory */
       free(namelist[i]);
@@ -481,17 +474,17 @@ int list_file(int newsock) {
   /* Free namelist pointer memory */
   free(namelist);      
 
+  /* End buffer with newline character */
   snprintf(dBuffer + strlen(dBuffer), 2, "\n");
-  fprintf(stderr, "dBufferLength = %d\n", dBufferLength);
-  fprintf(stderr, "dBuffer = %s\n", dBuffer);
+  
   /* Send message back to the client */
+  printf( "[child %d] Sent %s\n", getpid(), dBuffer );
   int n = send( newsock, dBuffer, dBufferLength, 0 );
   fflush( NULL );
   if ( n != dBufferLength )
   {
     perror( "LIST FAILED" );
   }
-
 
   return 0;
 }
